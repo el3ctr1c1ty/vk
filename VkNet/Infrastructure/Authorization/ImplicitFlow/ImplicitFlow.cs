@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Web;
 using JetBrains.Annotations;
 using Microsoft.Extensions.Logging;
 using VkNet.Abstractions.Authorization;
@@ -106,7 +107,13 @@ namespace VkNet.Infrastructure.Authorization.ImplicitFlow
 
 		private async Task<AuthorizationResult> NextStepAsync(AuthorizationFormResult formResult)
 		{
-			var pageType = _vkAuthorization.GetPageType(formResult.ResponseUrl);
+			var responseUrl = formResult.ResponseUrl;
+			if (responseUrl.OriginalString.StartsWith("https://oauth.vk.com/auth_redirect"))
+			{
+				responseUrl = GetRedirectUrl(responseUrl);
+			}
+
+			var pageType = _vkAuthorization.GetPageType(responseUrl);
 
 			switch (pageType)
 			{
@@ -153,15 +160,24 @@ namespace VkNet.Infrastructure.Authorization.ImplicitFlow
 				case ImplicitFlowPageType.Result:
 
 				{
-					return _vkAuthorization.GetAuthorizationResult(formResult.ResponseUrl);
+					return _vkAuthorization.GetAuthorizationResult(responseUrl);
 				}
 			}
 
 			var resultForm = await _authorizationFormsFactory.Create(pageType)
-				.ExecuteAsync(formResult.ResponseUrl, _authorizationParameters)
+				.ExecuteAsync(responseUrl, _authorizationParameters)
 				.ConfigureAwait(false);
 
 			return await NextStepAsync(resultForm).ConfigureAwait(false);
+		}
+
+		private static Uri GetRedirectUrl(Uri originalUrl)
+		{
+			var originalString = originalUrl.OriginalString;
+			var query = HttpUtility.ParseQueryString(originalString);
+			var escapedUrl = query["authorize_url"];
+			var unEscapedUrl = Uri.UnescapeDataString(escapedUrl);
+			return new Uri(unEscapedUrl);
 		}
 
 		/// <summary>
